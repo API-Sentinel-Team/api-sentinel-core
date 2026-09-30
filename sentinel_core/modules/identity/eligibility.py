@@ -16,9 +16,9 @@ import datetime
 from typing import Any, Iterable
 
 from sentinel_core.models.core import TestAccount
-from sentinel_core.modules.identity.authorization_replay import (
-    _ANONYMOUS_ROLE_KEYS,
-    _is_anonymous_account,
+from sentinel_core.modules.identity.replay_credentials import (
+    ANONYMOUS_ROLE_KEYS,
+    is_anonymous_account,
     auth_headers_for_account,
 )
 
@@ -57,7 +57,7 @@ def account_is_eligible(account: Any, *, now: datetime.datetime | None = None) -
         return False
     if account_expired(account, now=now):
         return False
-    if _is_anonymous_account(account):
+    if is_anonymous_account(account):
         return account_status(account) not in INELIGIBLE_ACCOUNT_STATUSES and not account_expired(account, now=now)
     return account_has_auth_material(account)
 
@@ -87,7 +87,7 @@ def eligibility_summary(
         if a is not None
         and account_status(a) not in INELIGIBLE_ACCOUNT_STATUSES
         and not account_expired(a, now=now)
-        and not _is_anonymous_account(a)
+        and not is_anonymous_account(a)
         and not account_has_auth_material(a)
     )
     return {
@@ -110,4 +110,4 @@ __all__ = [
 ]
 
 # Imported late to keep the anonymous-role key set single-sourced without a cycle.
-assert _ANONYMOUS_ROLE_KEYS  # re-exported indirectly via _is_anonymous_account
+assert ANONYMOUS_ROLE_KEYS  # re-exported indirectly via is_anonymous_account

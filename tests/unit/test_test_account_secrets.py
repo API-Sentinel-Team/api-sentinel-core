@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from sentinel_core.models import core as models
 from sentinel_core.modules.identity.auth_rotator import AuthRotator
-from sentinel_core.modules.identity.authorization_replay import auth_headers_for_account, infer_victim_account
+from sentinel_core.modules.identity.replay_credentials import auth_headers_for_account
 from sentinel_core.modules.identity.roles_context import RolesContextBuilder
 from sentinel_core.modules.identity.test_account_secrets import TestAccountSecretCodec
 
@@ -118,20 +118,6 @@ def test_roles_context_builder_uses_canonical_role_keys_for_secret_shaped_roles(
     assert all("TOKEN" not in key and "COOKIE" not in key for key in flattened)
 
 
-def test_infer_victim_account_matches_encrypted_auth_token_fallback():
-    victim = models.TestAccount(
-        id="victim",
-        account_id=1000000,
-        role="ADMIN",
-        **TestAccountSecretCodec.encrypt_payload({"auth_headers": {}, "auth_token": "victim-token"}),
-    )
-
-    matched = infer_victim_account(
-        [victim],
-        {"headers": {"Authorization": "Bearer victim-token"}},
-    )
-
-    assert matched is victim
 
 
 @pytest.mark.asyncio
