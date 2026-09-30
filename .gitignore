@@ -1,8 +1,8 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-build/
-dist/
+/build/
+/dist/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -10,5 +10,5 @@ htmlcov/
 venv/
 .env
 *.db
-data/
-models/
+/data/
+/models/
