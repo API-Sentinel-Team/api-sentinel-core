@@ -42,3 +42,29 @@ def test_for_one_header_rule_in_the_plural_form_is_enforced():
     rules = {"response_headers": {"for_one": {"key": {"eq": "content-type"}, "value": {"contains": "json"}}}}
     assert ResponseValidator().validate({"status_code": 200, "headers": {"Content-Type": "application/json"}}, rules)
     assert not ResponseValidator().validate({"status_code": 200, "headers": {"Content-Type": "text/html"}}, rules)
+
+
+def _resp(body, code=200, headers=None):
+    return {"status_code": code, "body": body, "headers": headers or {}}
+
+
+_SQLI = {
+    "and": [
+        {"response_payload": {"not_contains": ["<html>"]}},
+        {"or": [{"response_payload": [{"contains_either": ["SQLSTATE"]}]}, {"response_payload": {"regex": "SQL syntax.*MySQL"}}]},
+    ]
+}
+
+
+def test_and_or_rule_sets_are_evaluated_not_ignored():
+    v = ResponseValidator()
+    assert v.validate(_resp("error: SQLSTATE[42000]"), _SQLI)
+    assert v.validate(_resp("You have an error in your SQL syntax; MySQL"), _SQLI)
+    assert not v.validate(_resp("all fine"), _SQLI)  # used to pass because the whole rule was skipped
+    assert not v.validate(_resp("<html>SQLSTATE</html>"), _SQLI)
+
+
+def test_rules_that_need_out_of_band_evidence_never_report_a_finding():
+    v = ResponseValidator()
+    assert not v.validate(_resp("ok"), {"response_code": {"gte": 200, "lt": 300}, "ssrf_url_hit": {"eq": True}})
+    assert not v.validate(_resp("ok"), {"compare_greater": {"x": 1}})

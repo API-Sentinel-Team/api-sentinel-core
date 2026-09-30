@@ -10,7 +10,21 @@ class ResponseValidator:
     not_contains_either, percentage_match, percentage_match_schema, and OR logic.
     """
 
+    # Rules that need data this validator does not have (out-of-band callbacks, cross-request
+    # comparison). A finding must not be reported on evidence we cannot check, so they fail closed.
+    UNVERIFIABLE_RULES = ("ssrf_url_hit", "compare_greater")
+    # Context/selection hints that are not response checks; deliberately not evaluated here.
+    NON_RESPONSE_RULES = ("url", "request_headers")
+
     def validate(self, response: dict, rules: dict, original_response: dict = None) -> bool:
+        # 0. Boolean composition of whole rule sets: ``and`` / ``or`` take a list of rule dicts.
+        if "and" in rules and not all(self.validate(response, sub, original_response) for sub in rules["and"]):
+            return False
+        if "or" in rules and not any(self.validate(response, sub, original_response) for sub in rules["or"]):
+            return False
+        if any(key in rules for key in self.UNVERIFIABLE_RULES):
+            return False
+
         # 1. Response code
         if "response_code" in rules:
             if not self._check_code(rules["response_code"], response.get("status_code", 0)):
@@ -48,6 +62,8 @@ class ResponseValidator:
     # ── Payload ───────────────────────────────────────────────────────────────
 
     def _check_payload(self, rules: dict, body: str, original_body: str = "") -> bool:
+        if isinstance(rules, list):  # templates sometimes wrap the payload rules in a list
+            return all(self._check_payload(sub, body, original_body) for sub in rules)
         body_lower = body.lower()
 
         # OR logic — if any sub-condition passes, the whole payload check passes
