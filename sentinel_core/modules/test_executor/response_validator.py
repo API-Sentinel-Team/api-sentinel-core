@@ -24,9 +24,11 @@ class ResponseValidator:
                 return False
 
         # 3. Response header checks
-        if "response_header" in rules:
-            if not self._check_headers(rules["response_header"], response.get("headers", {})):
-                return False
+        # Templates spell this both ways; ignoring the plural form made every header rule pass.
+        for header_key in ("response_header", "response_headers"):
+            if header_key in rules:
+                if not self._check_headers(rules[header_key], response.get("headers", {})):
+                    return False
 
         return True
 
@@ -163,28 +165,45 @@ class ResponseValidator:
 
     # ── Headers ───────────────────────────────────────────────────────────────
 
-    def _check_headers(self, rule: dict, headers: dict) -> bool:
-        lower_headers = {k.lower(): v for k, v in headers.items()}
-
-        for_one = rule.get("for_one", {})
-        if for_one:
-            key_rule = for_one.get("key", {})
-            value_rule = for_one.get("value", {})
-            for k, v in lower_headers.items():
-                k_match = True
-                if "eq" in key_rule and k != key_rule["eq"].lower():
-                    k_match = False
-                if "regex" in key_rule and not re.search(key_rule["regex"], k, re.IGNORECASE):
-                    k_match = False
-                if not k_match:
-                    continue
-                if "contains" in value_rule and value_rule["contains"].lower() in v.lower():
-                    return True
-                if "regex" in value_rule and re.search(value_rule["regex"], v):
-                    return True
-                if not value_rule:
-                    return True
+    @staticmethod
+    def _text_rule_matches(rule: dict, text: str) -> bool:
+        """Every operator in ``rule`` must hold for ``text`` (case-insensitive, except regex flags)."""
+        low = text.lower()
+        if "eq" in rule and low != str(rule["eq"]).lower():
             return False
+        if "neq" in rule and low == str(rule["neq"]).lower():
+            return False
+        if "contains" in rule and str(rule["contains"]).lower() not in low:
+            return False
+        if "not_contains" in rule:
+            banned = rule["not_contains"]
+            banned = banned if isinstance(banned, list) else [banned]
+            if any(str(b).lower() in low for b in banned):
+                return False
+        if "contains_either" in rule:
+            options = rule["contains_either"]
+            options = options if isinstance(options, list) else [options]
+            if not any(str(o).lower() in low for o in options):
+                return False
+        if "regex" in rule and not re.search(str(rule["regex"]), text, re.IGNORECASE):
+            return False
+        return True
+
+    def _check_headers(self, rule: dict, headers: dict) -> bool:
+        lower_headers = {k.lower(): str(v) for k, v in headers.items()}
+
+        def header_matches(spec: dict, k: str, v: str) -> bool:
+            return self._text_rule_matches(spec.get("key", {}) or {}, k) and self._text_rule_matches(
+                spec.get("value", {}) or {}, v
+            )
+
+        for_one = rule.get("for_one")
+        if for_one:
+            return any(header_matches(for_one, k, v) for k, v in lower_headers.items())
+
+        for_all = rule.get("for_all")
+        if for_all:
+            return all(header_matches(for_all, k, v) for k, v in lower_headers.items())
 
         contains = rule.get("contains", {})
         for k, v in contains.items():
