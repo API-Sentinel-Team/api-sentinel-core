@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy.orm import declarative_base, Mapped, mapped_column
-from sqlalchemy import String, Integer, DateTime, Float, Boolean, JSON, BigInteger, Text, func, UniqueConstraint
+from sqlalchemy import String, Integer, DateTime, Float, Boolean, JSON, BigInteger, Text, func, UniqueConstraint, Index, text
 
 Base = declarative_base()
 
@@ -1199,3 +1199,38 @@ class JWTRevokedToken(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=True, index=True)
     revoked_at = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ArchiveJob(Base):
+    """A durable, tenant-owned request to archive that tenant's data.
+
+    The API only creates the row; the archiver service claims and executes it. At most one job per
+    tenant may be PENDING or RUNNING at a time (enforced by a partial unique index), so repeated
+    requests cannot stack up duplicate archive runs.
+    """
+    __tablename__ = "archive_jobs"
+    __table_args__ = (
+        Index(
+            "uq_archive_jobs_one_active_per_account",
+            "account_id",
+            unique=True,
+            sqlite_where=text("status IN ('PENDING', 'RUNNING')"),
+            postgresql_where=text("status IN ('PENDING', 'RUNNING')"),
+        ),
+        Index("ix_archive_jobs_claim", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    account_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", server_default="PENDING")
+    requested_by: Mapped[str] = mapped_column(String(100), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
+    next_attempt_at = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_id: Mapped[str] = mapped_column(String(100), nullable=True)
+    lease_expires_at = mapped_column(DateTime(timezone=True), nullable=True)
+    result = mapped_column(JSON, nullable=True)
+    error: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at = mapped_column(DateTime(timezone=True), server_default=func.now())
+    started_at = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at = mapped_column(DateTime(timezone=True), nullable=True)
