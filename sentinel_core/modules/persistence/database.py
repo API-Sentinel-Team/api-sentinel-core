@@ -1,3 +1,4 @@
+import re
 from sqlalchemy import event, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import Session
@@ -75,6 +76,9 @@ async def get_read_db():
         yield session
 
 
+_SETTING_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)+$")
+
+
 async def apply_tenant_context(session) -> None:
     if not settings.TENANT_RLS_ENABLED:
         return
@@ -83,7 +87,13 @@ async def apply_tenant_context(session) -> None:
     account_id = get_current_account_id()
     if account_id is None:
         return
+    name = settings.TENANT_RLS_SETTING_NAME
+    if not _SETTING_NAME_RE.match(name):
+        raise ValueError(f"invalid TENANT_RLS_SETTING_NAME: {name!r}")
+    # `SET LOCAL x = $1` is a syntax error on asyncpg (utility statements take no bind parameters), which
+    # failed every account-scoped session once TENANT_RLS_ENABLED was on. set_config(..., is_local=true)
+    # is the parameterisable equivalent and scopes the value to the current transaction.
     await session.execute(
-        text(f"SET LOCAL {settings.TENANT_RLS_SETTING_NAME} = :account_id"),
-        {"account_id": str(account_id)},
+        text("SELECT set_config(:name, :value, true)"),
+        {"name": name, "value": str(int(account_id))},
     )
